@@ -42,7 +42,10 @@ isolate registered, by passing the integer handle rather than the bytes.
 
 The Rust crate lives in `rust/` and is built by
 [cargokit](https://github.com/irondash/cargokit) as part of the Flutter build.
-Until precompiled binaries are published, a Rust toolchain is required.
+Until precompiled binaries are published, a Rust toolchain is required. Adding
+`rust/cargokit.yaml` with a `precompiled_binaries` block (release URL prefix and
+the signing public key) switches consumers to downloading them instead; the
+file must then hold that block, because cargokit rejects an empty one.
 
 Tests need the compiled library and a font:
 
