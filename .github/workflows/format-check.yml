@@ -1,0 +1,68 @@
+name: Format Check
+
+# רץ אחרי כל קומיט (push לכל ענף) וגם ב-Pull Requests.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: format-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart-format:
+    name: Dart format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # pub get first: the formatter's style follows the language version the
+      # resolution picks, so an unresolved tree formats differently from local.
+      - name: flutter pub get
+        run: flutter pub get
+
+      # Package code only, not the vendored cargokit.
+      - name: dart format --set-exit-if-changed
+        run: dart format --output=none --set-exit-if-changed lib test
+
+  line-endings:
+    name: Line endings (no CRLF)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # נכשל אם קובץ טקסט מנוהל מכיל CRLF — בדיוק הבעיה שפרסום ממחשב Windows יוצר.
+      # *.bat / *.cmd מוחרגים כי הם חייבים CRLF (ראו .gitattributes).
+      - name: Check for CRLF in tracked text files
+        run: |
+          bad=$(git ls-files -- . ':!*.bat' ':!*.cmd' ':!*.png' ':!*.jar' \
+            | while read -r f; do
+                if grep -lIU "$(printf '\r')" "$f" >/dev/null 2>&1; then echo "$f"; fi
+              done)
+          if [ -n "$bad" ]; then
+            echo "::error::הקבצים הבאים מכילים CRLF (יש להמיר ל-LF):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK — כל הקבצים ב-LF."
+
+  rust-format:
+    name: Rust format (rustfmt)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check

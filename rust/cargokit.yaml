@@ -1,0 +1,4 @@
+# No `precompiled_binaries` block yet: cargokit builds from source, which needs
+# only a Rust toolchain because this crate has no C or C++ dependencies. Add the
+# block, with the release url_prefix and signing public key, once the repository
+# publishes its first Precompiled Binaries run.

@@ -1,0 +1,61 @@
+name: Rust Quality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rust-quality.yml"
+      - "rust/**"
+  pull_request:
+    paths:
+      - ".github/workflows/rust-quality.yml"
+      - "rust/**"
+  workflow_dispatch:
+
+concurrency:
+  group: rust-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: fmt, clippy, test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Fetch the OFL test font
+        # Fetched rather than vendored so this repository carries no font
+        # licences of its own. Shaping tests skip when the variable is unset.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust/tests/fonts
+          curl -fsSL -o rust/tests/fonts/NotoSerifHebrew.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/notoserifhebrew/NotoSerifHebrew%5Bwdth%2Cwght%5D.ttf"
+
+      - name: Format
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Test
+        shell: bash
+        run: cargo test --manifest-path rust/Cargo.toml --locked --all-targets
+        env:
+          OPENTYPE_SHAPER_TEST_FONT: rust/tests/fonts/NotoSerifHebrew.ttf

@@ -1,0 +1,23 @@
+[package]
+name = "opentype_shaper"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# HarfBuzz shaping port. Applies GSUB and the GPOS mark-positioning lookups the
+# Hebrew Stam/nikud fonts rely on; rustybuzz is archived and points here.
+harfrust = "0.13.3"
+# Same version harfrust builds on, so `FontRef` is the identical type.
+read-fonts = "0.43.3"
+
+# Unwinding stays enabled on purpose: every boundary function catches panics and
+# returns an error code. Book printing shapes user-installed system fonts, so a
+# malformed font must not abort the app.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
