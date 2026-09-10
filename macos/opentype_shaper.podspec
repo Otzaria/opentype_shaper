@@ -3,7 +3,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'opentype_shaper'
-  s.version          = '0.1.0'
+  s.version          = '0.1.1'
   s.summary          = 'OpenType text shaping for Dart and Flutter.'
   s.description      = <<-DESC
 GSUB substitutions and GPOS mark positioning, returning glyph ids with

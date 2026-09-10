@@ -1,6 +1,6 @@
 name: opentype_shaper
 description: "OpenType text shaping for Dart and Flutter: GSUB substitutions and GPOS mark positioning, returning glyph ids with per-glyph offsets."
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/Otzaria/opentype_shaper
 
 environment:
