@@ -1,0 +1,5 @@
+# Consumers download signed binaries from this repository's precompiled_ releases
+# instead of compiling the crate; the Precompiled Binaries workflow publishes them.
+precompiled_binaries:
+  url_prefix: https://github.com/Otzaria/opentype_shaper/releases/download/precompiled_
+  public_key: afe7c2822d2b006eedee1d730b08216e36cd59defbc188f30579e61823644273
