@@ -1,3 +1,12 @@
+## 0.2.0
+
+- `subsetFontForPdf`: a PDF font program subset by glyph id, keeping ids in
+  place and dropping the shaping, variation and naming tables a PDF never reads.
+- Shape plans are cached per font instead of rebuilt on every call: 1.3 to 5
+  times faster per Hebrew word in measurement.
+- The shaping call is a leaf FFI call, and the language and feature strings are
+  encoded once per font instead of on every call.
+
 ## 0.1.1
 
 - Precompiled, signed native binaries for every platform; consumers no longer
