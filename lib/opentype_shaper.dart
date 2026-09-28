@@ -8,6 +8,7 @@ library;
 
 export 'src/errors.dart';
 export 'src/font_metrics.dart';
+export 'src/font_subset.dart';
 export 'src/shaped_run.dart';
 export 'src/shaper_font.dart';
 export 'src/shaper_library.dart';

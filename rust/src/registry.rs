@@ -1,20 +1,27 @@
 //! Process-wide font registry.
 //!
-//! An entry owns its bytes and the parsed [`ShaperData`], which is the only
-//! expensive step (~60us; building a `FontRef` and a `Shaper` per shaping call
-//! measured free, so neither is cached and the entry needs no self-reference).
+//! An entry owns its bytes, the parsed [`ShaperData`] and the shape plans built
+//! for it. Building a `FontRef` and a `Shaper` per call measured free; a plan
+//! does not (it costs more than shaping a Hebrew word), so plans are kept.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-use harfrust::{FontRef, ShaperData};
+use harfrust::{
+    Direction, Feature, FontRef, Language, Script, ShapePlan, ShapePlanKey, Shaper, ShaperData,
+};
+
+/// Distinct (direction, script, language, features) combinations kept per font.
+/// A document uses a handful; the cap only bounds a caller that varies them.
+const MAX_PLANS: usize = 16;
 
 pub struct FontEntry {
     data: Box<[u8]>,
     face_index: u32,
     shaper_data: ShaperData,
+    plans: Mutex<Vec<Arc<ShapePlan>>>,
     /// Identity of the bytes, so re-registering the same font reuses the entry.
     fingerprint: u64,
 }
@@ -26,6 +33,34 @@ impl FontEntry {
 
     pub fn shaper_data(&self) -> &ShaperData {
         &self.shaper_data
+    }
+
+    /// The plan for these segment properties, built on first use.
+    pub fn plan(
+        &self,
+        shaper: &Shaper<'_>,
+        direction: Direction,
+        script: Option<Script>,
+        language: Option<&Language>,
+        features: &[Feature],
+    ) -> Arc<ShapePlan> {
+        let key = ShapePlanKey::new(script, direction)
+            .language(language)
+            .features(features);
+        // A poisoned lock only means another thread panicked mid-push; the
+        // list itself is still valid.
+        let mut plans = self.plans.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(plan) = plans.iter().find(|plan| key.matches(plan)) {
+            return plan.clone();
+        }
+        let plan = Arc::new(ShapePlan::new(
+            shaper, direction, script, language, features,
+        ));
+        if plans.len() >= MAX_PLANS {
+            plans.remove(0);
+        }
+        plans.push(plan.clone());
+        plan
     }
 }
 
@@ -83,6 +118,7 @@ pub fn register(data: &[u8], face_index: u32) -> Result<i64, ()> {
         data: owned,
         face_index,
         shaper_data,
+        plans: Mutex::new(Vec::new()),
         fingerprint: fp,
     });
 

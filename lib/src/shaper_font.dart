@@ -171,6 +171,8 @@ class ShaperFont {
   Pointer<Int32>? _outBuffer;
   int _outCapacityRecords = 0;
   Pointer<Uint32>? _countBuffer;
+  int? _fieldsPerGlyph;
+  final Map<String, (Pointer<Uint8>, int)> _encodedStrings = {};
   bool _disposed = false;
 
   /// Shapes one run of text.
@@ -225,70 +227,70 @@ class ShaperFont {
     final textBuffer = _ensureTextCapacity(units.length);
     textBuffer.asTypedList(units.length).setAll(0, units);
 
-    final languageBytes = language == null ? null : utf8.encode(language);
-    final featureBytes = features == null ? null : utf8.encode(features);
-    final languagePointer = _allocateBytes(languageBytes);
-    final featurePointer = _allocateBytes(featureBytes);
+    final (languagePointer, languageLength) = _encoded(language);
+    final (featurePointer, featureLength) = _encoded(features);
 
     final countBuffer = _countBuffer ??= calloc<Uint32>();
-    final fieldsPerGlyph = bindings.recordFields();
+    final fieldsPerGlyph = _fieldsPerGlyph ??= bindings.recordFields();
 
-    try {
-      // One glyph per code unit covers text without marks; a nikud word needs
-      // more, and the ABI answers with the required count instead of
-      // truncating, so the buffer grows once and is reused after that.
-      var capacity = units.length < 16 ? 32 : units.length * 2;
-      for (var attempt = 0; attempt < 2; attempt++) {
-        final outBuffer = _ensureOutCapacity(capacity, fieldsPerGlyph);
-        final status = bindings.shape(
-          _handle,
-          textBuffer,
-          units.length,
-          rtl ? 1 : 0,
-          _scriptTag(script),
-          languagePointer ?? nullptr,
-          languageBytes?.length ?? 0,
-          featurePointer ?? nullptr,
-          featureBytes?.length ?? 0,
-          outBuffer,
-          _outCapacityRecords,
-          countBuffer,
-        );
-
-        if (status == ShaperStatus.ok) {
-          final glyphCount = countBuffer.value;
-          return ShapedRun(
-            text: text,
-            glyphCount: glyphCount,
-            records: Int32List.fromList(
-              outBuffer.asTypedList(glyphCount * fieldsPerGlyph),
-            ),
-            fieldsPerGlyph: fieldsPerGlyph,
-            unitsPerEm: metrics.unitsPerEm,
-          );
-        }
-        if (status == ShaperStatus.bufferTooSmall) {
-          capacity = countBuffer.value;
-          continue;
-        }
-        _check(status, 'shape the text');
-      }
-      throw const ShaperException(
-        'The shaper kept asking for more room than it then used.',
+    // One glyph per code unit covers text without marks; a nikud word needs
+    // more, and the ABI answers with the required count instead of
+    // truncating, so the buffer grows once and is reused after that.
+    var capacity = units.length < 16 ? 32 : units.length * 2;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final outBuffer = _ensureOutCapacity(capacity, fieldsPerGlyph);
+      final status = bindings.shape(
+        _handle,
+        textBuffer,
+        units.length,
+        rtl ? 1 : 0,
+        _scriptTag(script),
+        languagePointer,
+        languageLength,
+        featurePointer,
+        featureLength,
+        outBuffer,
+        _outCapacityRecords,
+        countBuffer,
       );
-    } finally {
-      if (languagePointer != null) calloc.free(languagePointer);
-      if (featurePointer != null) calloc.free(featurePointer);
+
+      if (status == ShaperStatus.ok) {
+        final glyphCount = countBuffer.value;
+        return ShapedRun(
+          text: text,
+          glyphCount: glyphCount,
+          records: Int32List.fromList(
+            outBuffer.asTypedList(glyphCount * fieldsPerGlyph),
+          ),
+          fieldsPerGlyph: fieldsPerGlyph,
+          unitsPerEm: metrics.unitsPerEm,
+        );
+      }
+      if (status == ShaperStatus.bufferTooSmall) {
+        capacity = countBuffer.value;
+        continue;
+      }
+      _check(status, 'shape the text');
     }
+    throw const ShaperException(
+      'The shaper kept asking for more room than it then used.',
+    );
   }
 
-  Pointer<Uint8>? _allocateBytes(List<int>? bytes) {
-    if (bytes == null || bytes.isEmpty) {
-      return null;
+  /// A caller passes the same few language and feature strings on every call,
+  /// so each is encoded into native memory once and kept until [dispose].
+  (Pointer<Uint8>, int) _encoded(String? value) {
+    if (value == null || value.isEmpty) {
+      return (nullptr, 0);
     }
+    final cached = _encodedStrings[value];
+    if (cached != null) {
+      return cached;
+    }
+    final bytes = utf8.encode(value);
     final pointer = calloc<Uint8>(bytes.length);
     pointer.asTypedList(bytes.length).setAll(0, bytes);
-    return pointer;
+    return _encodedStrings[value] = (pointer, bytes.length);
   }
 
   Pointer<Uint16> _ensureTextCapacity(int units) {
@@ -345,6 +347,10 @@ class ShaperFont {
     }
     _disposed = true;
     _cache.clear();
+    for (final (pointer, _) in _encodedStrings.values) {
+      calloc.free(pointer);
+    }
+    _encodedStrings.clear();
     final text = _textBuffer;
     if (text != null) calloc.free(text);
     final out = _outBuffer;

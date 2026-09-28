@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use harfrust::{Direction, Feature, Language, Script, ShapeOptions, Tag, UnicodeBuffer};
+use harfrust::{script, Direction, Feature, Language, Script, ShapeOptions, Tag, UnicodeBuffer};
 
 use crate::registry::FontEntry;
 use crate::RECORD_FIELDS;
@@ -92,7 +92,21 @@ pub fn shape(
     }
 
     let features = parse_features(request.features);
-    let glyphs = shaper.shape(buffer, ShapeOptions::default().features(&features));
+    let buffer_script = buffer.script();
+    let language = buffer.language();
+    let plan = entry.plan(
+        &shaper,
+        buffer.direction(),
+        (buffer_script != script::UNKNOWN).then_some(buffer_script),
+        language.as_ref(),
+        &features,
+    );
+    let glyphs = shaper.shape(
+        buffer,
+        ShapeOptions::default()
+            .features(&features)
+            .plan(Some(&plan)),
+    );
 
     let infos = glyphs.glyph_infos();
     let positions = glyphs.glyph_positions();

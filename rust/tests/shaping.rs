@@ -228,3 +228,100 @@ fn metrics_describe_the_font() {
 
     opentype_shaper_release_font(handle);
 }
+
+fn shape_with_features(handle: i64, text: &[u16], rtl: bool, features: &str) -> Vec<i32> {
+    let mut buffer = vec![0i32; text.len() * 4 * RECORD_FIELDS];
+    let mut count = 0u32;
+    let status = unsafe {
+        opentype_shaper_shape(
+            handle,
+            text.as_ptr(),
+            text.len(),
+            i32::from(rtl),
+            HEBREW_TAG,
+            std::ptr::null(),
+            0,
+            features.as_ptr(),
+            features.len(),
+            buffer.as_mut_ptr(),
+            buffer.len() / RECORD_FIELDS,
+            &mut count,
+        )
+    };
+    assert_eq!(status, OK, "shape failed");
+    buffer.truncate(count as usize * RECORD_FIELDS);
+    buffer
+}
+
+/// Shapes through harfrust directly, with a plan built for this call only.
+fn shape_uncached(bytes: &[u8], text: &[u16], rtl: bool, features: &str) -> Vec<i32> {
+    use std::str::FromStr;
+    let font = harfrust::FontRef::from_index(bytes, 0).unwrap();
+    let data = harfrust::ShaperData::new(&font);
+    let shaper = data.shaper(&font).build();
+    let mut buffer = harfrust::UnicodeBuffer::new();
+    for (index, ch) in char::decode_utf16(text.iter().copied()).enumerate() {
+        buffer.add(ch.unwrap(), index as u32);
+    }
+    buffer.set_direction(if rtl {
+        harfrust::Direction::RightToLeft
+    } else {
+        harfrust::Direction::LeftToRight
+    });
+    buffer.set_script(harfrust::Script::from_iso15924_tag(harfrust::Tag::new(b"Hebr")).unwrap());
+    let features: Vec<_> = features
+        .split(',')
+        .filter(|part| !part.is_empty())
+        .map(|part| harfrust::Feature::from_str(part).unwrap())
+        .collect();
+    let glyphs = shaper.shape(
+        buffer,
+        harfrust::ShapeOptions::default().features(&features),
+    );
+    glyphs
+        .glyph_infos()
+        .iter()
+        .zip(glyphs.glyph_positions())
+        .flat_map(|(info, pos)| {
+            [
+                info.glyph_id as i32,
+                info.cluster as i32,
+                pos.x_advance,
+                pos.y_advance,
+                pos.x_offset,
+                pos.y_offset,
+            ]
+        })
+        .collect()
+}
+
+#[test]
+fn cached_plans_match_fresh_ones_for_every_segment_property() {
+    let Some(bytes) = test_font() else {
+        return;
+    };
+    let handle = register(&bytes);
+    assert_ne!(
+        shape_uncached(&bytes, SAMPLE, true, ""),
+        shape_uncached(&bytes, SAMPLE, true, "-mark"),
+        "the sample must tell the two feature sets apart"
+    );
+    // Interleaved so each call finds the cache holding the other properties' plan.
+    let cases = [
+        (true, ""),
+        (false, ""),
+        (true, "-mark"),
+        (true, ""),
+        (false, "-mark"),
+    ];
+    for _ in 0..2 {
+        for (rtl, features) in cases {
+            assert_eq!(
+                shape_with_features(handle, SAMPLE, rtl, features),
+                shape_uncached(&bytes, SAMPLE, rtl, features),
+                "rtl={rtl} features={features:?}"
+            );
+        }
+    }
+    opentype_shaper_release_font(handle);
+}

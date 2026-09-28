@@ -90,8 +90,11 @@ class ShaperBindings {
           .lookupFunction<FfiPostscriptNameNative, FfiPostscriptName>(
             'opentype_shaper_postscript_name',
           ),
+      // Leaf: the native side never calls back into Dart, so the per-call
+      // transition out of the Dart VM is skipped on the hot shaping path.
       shape = library.lookupFunction<FfiShapeNative, FfiShape>(
         'opentype_shaper_shape',
+        isLeaf: true,
       );
 
   final FfiAbiVersion abiVersion;

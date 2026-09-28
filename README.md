@@ -38,6 +38,23 @@ consumer advances the pen positively while emitting them in sequence.
 `ShaperFont.attach(handle)` lets a background isolate use a font the main
 isolate registered, by passing the integer handle rather than the bytes.
 
+### Embedding in a PDF
+
+A PDF that draws shaped glyphs addresses them by id (`/CIDToGIDMap
+/Identity`), so the font cannot be subset by character. `subsetFontForPdf`
+subsets by glyph id instead: the ids stay put, unused outlines become empty,
+components of composite glyphs are kept, and only the tables a PDF renderer
+reads survive. A variable font embeds its default instance, the one the shaper
+measured.
+
+```dart
+final program = subsetFontForPdf(fontBytes, usedGlyphIds);
+```
+
+For the fonts it was measured on, this is ten to thirty times smaller than the
+full file. CFF outlines are stripped of the other tables but not pruned glyph
+by glyph.
+
 ## Building
 
 The Rust crate lives in `rust/` and is built by
