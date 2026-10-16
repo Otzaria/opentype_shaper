@@ -1,5 +1,4 @@
 import 'dart:ffi';
-import 'dart:io';
 
 import 'errors.dart';
 
@@ -58,68 +57,88 @@ typedef FfiShape =
       Pointer<Uint32>,
     );
 
-/// Resolved symbols of the native shaper.
-class ShaperBindings {
-  ShaperBindings._(DynamicLibrary library)
-    : abiVersion = library.lookupFunction<FfiAbiVersionNative, FfiAbiVersion>(
-        'opentype_shaper_abi_version',
-      ),
-      recordFields = library.lookupFunction<FfiAbiVersionNative, FfiAbiVersion>(
-        'opentype_shaper_record_fields',
-      ),
-      metricFields = library.lookupFunction<FfiAbiVersionNative, FfiAbiVersion>(
-        'opentype_shaper_metric_fields',
-      ),
-      registerFont = library
-          .lookupFunction<FfiRegisterFontNative, FfiRegisterFont>(
-            'opentype_shaper_register_font',
-          ),
-      releaseFont = library
-          .lookupFunction<FfiReleaseFontNative, FfiReleaseFont>(
-            'opentype_shaper_release_font',
-          ),
-      fontMetrics = library
-          .lookupFunction<FfiFontMetricsNative, FfiFontMetrics>(
-            'opentype_shaper_font_metrics',
-          ),
-      glyphAdvances = library
-          .lookupFunction<FfiGlyphAdvancesNative, FfiGlyphAdvances>(
-            'opentype_shaper_glyph_advances',
-          ),
-      postscriptName = library
-          .lookupFunction<FfiPostscriptNameNative, FfiPostscriptName>(
-            'opentype_shaper_postscript_name',
-          ),
-      // Leaf: the native side never calls back into Dart, so the per-call
-      // transition out of the Dart VM is skipped on the hot shaping path.
-      shape = library.lookupFunction<FfiShapeNative, FfiShape>(
-        'opentype_shaper_shape',
-        isLeaf: true,
-      );
+@Native<FfiAbiVersionNative>(symbol: 'opentype_shaper_abi_version')
+external int _abiVersion();
 
-  final FfiAbiVersion abiVersion;
-  final FfiAbiVersion recordFields;
-  final FfiAbiVersion metricFields;
-  final FfiRegisterFont registerFont;
-  final FfiReleaseFont releaseFont;
-  final FfiFontMetrics fontMetrics;
-  final FfiGlyphAdvances glyphAdvances;
-  final FfiPostscriptName postscriptName;
-  final FfiShape shape;
+@Native<FfiAbiVersionNative>(symbol: 'opentype_shaper_record_fields')
+external int _recordFields();
+
+@Native<FfiAbiVersionNative>(symbol: 'opentype_shaper_metric_fields')
+external int _metricFields();
+
+@Native<FfiRegisterFontNative>(symbol: 'opentype_shaper_register_font')
+external int _registerFont(Pointer<Uint8> data, int length, int faceIndex);
+
+@Native<FfiReleaseFontNative>(symbol: 'opentype_shaper_release_font')
+external int _releaseFont(int handle);
+
+@Native<FfiFontMetricsNative>(symbol: 'opentype_shaper_font_metrics')
+external int _fontMetrics(
+  int handle,
+  Pointer<Int32> out,
+  int capacity,
+  Pointer<Uint32> written,
+);
+
+@Native<FfiGlyphAdvancesNative>(symbol: 'opentype_shaper_glyph_advances')
+external int _glyphAdvances(
+  int handle,
+  Pointer<Uint16> glyphs,
+  int count,
+  Pointer<Uint32> out,
+);
+
+@Native<FfiPostscriptNameNative>(symbol: 'opentype_shaper_postscript_name')
+external int _postscriptName(
+  int handle,
+  Pointer<Uint8> out,
+  int capacity,
+  Pointer<Uint32> written,
+);
+
+// Leaf: the native side never calls back into Dart, so the per-call
+// transition out of the Dart VM is skipped on the hot shaping path.
+@Native<FfiShapeNative>(symbol: 'opentype_shaper_shape', isLeaf: true)
+external int _shape(
+  int handle,
+  Pointer<Uint16> text,
+  int textLength,
+  int direction,
+  int script,
+  Pointer<Uint8> language,
+  int languageLength,
+  Pointer<Uint8> features,
+  int featuresLength,
+  Pointer<Int32> out,
+  int capacity,
+  Pointer<Uint32> written,
+);
+
+/// Resolved symbols of the native shaper.
+///
+/// The library is the package's code asset, bundled by the build hook.
+class ShaperBindings {
+  ShaperBindings._();
+
+  final FfiAbiVersion abiVersion = _abiVersion;
+  final FfiAbiVersion recordFields = _recordFields;
+  final FfiAbiVersion metricFields = _metricFields;
+  final FfiRegisterFont registerFont = _registerFont;
+  final FfiReleaseFont releaseFont = _releaseFont;
+  final FfiFontMetrics fontMetrics = _fontMetrics;
+  final FfiGlyphAdvances glyphAdvances = _glyphAdvances;
+  final FfiPostscriptName postscriptName = _postscriptName;
+  final FfiShape shape = _shape;
 
   /// The ABI this Dart code was written against.
   static const int expectedAbiVersion = 1;
 
   static ShaperBindings? _instance;
 
-  /// Overrides library resolution, for tests running on the host VM where the
-  /// plugin's native library is not bundled next to the executable.
-  static String? libraryPathOverride;
-
   static ShaperBindings get instance => _instance ??= _open();
 
   static ShaperBindings _open() {
-    final bindings = ShaperBindings._(_loadLibrary());
+    final bindings = ShaperBindings._();
     final version = bindings.abiVersion();
     if (version != expectedAbiVersion) {
       throw ShaperException(
@@ -128,20 +147,5 @@ class ShaperBindings {
       );
     }
     return bindings;
-  }
-
-  static DynamicLibrary _loadLibrary() {
-    final override = libraryPathOverride;
-    if (override != null) {
-      return DynamicLibrary.open(override);
-    }
-    // Apple platforms link the Rust static library into the host binary.
-    if (Platform.isIOS || Platform.isMacOS) {
-      return DynamicLibrary.process();
-    }
-    if (Platform.isWindows) {
-      return DynamicLibrary.open('opentype_shaper.dll');
-    }
-    return DynamicLibrary.open('libopentype_shaper.so');
   }
 }
