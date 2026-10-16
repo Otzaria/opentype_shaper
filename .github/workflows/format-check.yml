@@ -29,9 +29,8 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
-      # Package code only, not the vendored cargokit.
       - name: dart format --set-exit-if-changed
-        run: dart format --output=none --set-exit-if-changed lib test
+        run: dart format --output=none --set-exit-if-changed lib test hook tool
 
   line-endings:
     name: Line endings (no CRLF)

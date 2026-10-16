@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opentype_shaper/opentype_shaper.dart';
 
-import 'shaping_test.dart' show findNativeLibrary, readTestFont, sample;
+import 'shaping_test.dart' show readTestFont, sample;
 
 /// Reads a single-font table directory: tag to (offset, length).
 Map<String, (int, int)> tablesOf(Uint8List font) {
@@ -56,93 +56,81 @@ int wholeFontChecksum(Uint8List font) {
 }
 
 void main() {
-  final libraryPath = findNativeLibrary();
   final fontBytes = readTestFont();
 
-  group(
-    'subsetFontForPdf',
-    () {
-      late ShaperFont font;
-      late List<int> used;
+  group('subsetFontForPdf', () {
+    late ShaperFont font;
+    late List<int> used;
 
-      setUpAll(() {
-        ShaperLibrary.path = libraryPath;
-        font = ShaperFont.register(fontBytes!);
-        final run = font.shape(sample, rtl: true, script: 'hebr');
-        used = [for (var i = 0; i < run.glyphCount; i++) run.glyphId(i)];
-      });
+    setUpAll(() {
+      font = ShaperFont.register(fontBytes!);
+      final run = font.shape(sample, rtl: true, script: 'hebr');
+      used = [for (var i = 0; i < run.glyphCount; i++) run.glyphId(i)];
+    });
 
-      tearDownAll(() => font.dispose());
+    tearDownAll(() => font.dispose());
 
-      test('keeps used outlines at their ids and empties the rest', () {
-        final subset = subsetFontForPdf(fontBytes!, used);
-        final before = glyphsOf(fontBytes);
-        final after = glyphsOf(subset);
+    test('keeps used outlines at their ids and empties the rest', () {
+      final subset = subsetFontForPdf(fontBytes!, used);
+      final before = glyphsOf(fontBytes);
+      final after = glyphsOf(subset);
 
-        expect(after, hasLength(before.length));
-        for (final glyph in {0, ...used}) {
-          expect(trimmed(after[glyph]), trimmed(before[glyph]));
-        }
-        final dropped = [
-          for (var glyph = 0; glyph < after.length; glyph++)
-            if (!used.contains(glyph) && glyph != 0) after[glyph],
-        ];
-        // Composites may pull in extra glyphs; most of the font still goes.
-        expect(
-          dropped.where((outline) => outline.isEmpty).length,
-          greaterThan(dropped.length ~/ 2),
-        );
-        expect(subset.length, lessThan(fontBytes.length ~/ 2));
-      });
+      expect(after, hasLength(before.length));
+      for (final glyph in {0, ...used}) {
+        expect(trimmed(after[glyph]), trimmed(before[glyph]));
+      }
+      final dropped = [
+        for (var glyph = 0; glyph < after.length; glyph++)
+          if (!used.contains(glyph) && glyph != 0) after[glyph],
+      ];
+      // Composites may pull in extra glyphs; most of the font still goes.
+      expect(
+        dropped.where((outline) => outline.isEmpty).length,
+        greaterThan(dropped.length ~/ 2),
+      );
+      expect(subset.length, lessThan(fontBytes.length ~/ 2));
+    });
 
-      test('keeps the glyphs a composite is built from', () {
-        final original = glyphsOf(fontBytes!);
-        final composite = original.indexWhere(
-          (outline) =>
-              outline.length >= 10 &&
-              ByteData.sublistView(outline).getInt16(0) < 0,
-        );
-        if (composite < 0) {
-          markTestSkipped('the test font has no composite glyph');
-          return;
-        }
-        final component = ByteData.sublistView(
-          original[composite],
-        ).getUint16(12);
-        final after = glyphsOf(subsetFontForPdf(fontBytes, [composite]));
-        expect(trimmed(after[component]), trimmed(original[component]));
-      });
+    test('keeps the glyphs a composite is built from', () {
+      final original = glyphsOf(fontBytes!);
+      final composite = original.indexWhere(
+        (outline) =>
+            outline.length >= 10 &&
+            ByteData.sublistView(outline).getInt16(0) < 0,
+      );
+      if (composite < 0) {
+        markTestSkipped('the test font has no composite glyph');
+        return;
+      }
+      final component = ByteData.sublistView(original[composite]).getUint16(12);
+      final after = glyphsOf(subsetFontForPdf(fontBytes, [composite]));
+      expect(trimmed(after[component]), trimmed(original[component]));
+    });
 
-      test('drops the tables a PDF never reads', () {
-        final tags = tablesOf(subsetFontForPdf(fontBytes!, used)).keys;
-        for (final tag in const ['GSUB', 'GPOS', 'GDEF', 'gvar', 'fvar']) {
-          expect(tags, isNot(contains(tag)));
-        }
-        expect(
-          tags,
-          containsAll(['head', 'hhea', 'hmtx', 'maxp', 'glyf', 'loca']),
-        );
-      });
+    test('drops the tables a PDF never reads', () {
+      final tags = tablesOf(subsetFontForPdf(fontBytes!, used)).keys;
+      for (final tag in const ['GSUB', 'GPOS', 'GDEF', 'gvar', 'fvar']) {
+        expect(tags, isNot(contains(tag)));
+      }
+      expect(
+        tags,
+        containsAll(['head', 'hhea', 'hmtx', 'maxp', 'glyf', 'loca']),
+      );
+    });
 
-      test('writes a font that parses and keeps its metrics', () {
-        final subset = subsetFontForPdf(fontBytes!, used);
-        expect(wholeFontChecksum(subset), 0xB1B0AFBA);
+    test('writes a font that parses and keeps its metrics', () {
+      final subset = subsetFontForPdf(fontBytes!, used);
+      expect(wholeFontChecksum(subset), 0xB1B0AFBA);
 
-        final reparsed = ShaperFont.register(subset);
-        addTearDown(reparsed.dispose);
-        expect(reparsed.metrics.unitsPerEm, font.metrics.unitsPerEm);
-        expect(reparsed.metrics.glyphCount, font.metrics.glyphCount);
-        for (final glyph in used) {
-          expect(reparsed.glyphAdvances[glyph], font.glyphAdvances[glyph]);
-        }
-      });
-    },
-    skip: libraryPath == null
-        ? 'run cargo build first'
-        : fontBytes == null
-        ? 'set OPENTYPE_SHAPER_TEST_FONT'
-        : null,
-  );
+      final reparsed = ShaperFont.register(subset);
+      addTearDown(reparsed.dispose);
+      expect(reparsed.metrics.unitsPerEm, font.metrics.unitsPerEm);
+      expect(reparsed.metrics.glyphCount, font.metrics.glyphCount);
+      for (final glyph in used) {
+        expect(reparsed.glyphAdvances[glyph], font.glyphAdvances[glyph]);
+      }
+    });
+  }, skip: fontBytes == null ? 'set OPENTYPE_SHAPER_TEST_FONT' : null);
 
   test('rejects data that is not a font', () {
     expect(

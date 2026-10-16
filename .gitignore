@@ -34,3 +34,6 @@ build/
 
 # OFL test font fetched by CI; never vendored.
 /rust/tests/fonts/
+
+# Signed binaries the precompiled-binaries tool writes before uploading.
+/tool/precompiled_binaries/out/

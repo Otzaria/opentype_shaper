@@ -1,0 +1,167 @@
+name: Native Assets
+
+# The build hook is the only way the library reaches an app, so every platform
+# is exercised end to end: package tests on the host, and a fresh app that
+# bundles the code asset and calls into it on a desktop, a simulator and an
+# emulator.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: native-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FONT_URL: https://github.com/google/fonts/raw/main/ofl/notoserifhebrew/NotoSerifHebrew%5Bwdth%2Cwght%5D.ttf
+
+jobs:
+  package-tests:
+    name: flutter test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The app's Flutter, whose hooks runner ships the library.
+          flutter-version: 3.47.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Fetch the OFL test font
+        shell: bash
+        run: |
+          mkdir -p rust/tests/fonts
+          curl -fsSL -o rust/tests/fonts/NotoSerifHebrew.ttf "$FONT_URL"
+
+      - run: flutter pub get
+
+      - name: flutter test
+        run: flutter test
+        env:
+          OPENTYPE_SHAPER_TEST_FONT: rust/tests/fonts/NotoSerifHebrew.ttf
+
+  app:
+    name: App on ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-24.04
+          - platform: windows
+            os: windows-2022
+          - platform: macos
+            os: macos-15
+          - platform: ios
+            os: macos-15
+          - platform: android
+            os: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: opentype_shaper
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The app's Flutter, whose hooks runner ships the library.
+          flutter-version: 3.47.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Linux desktop dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev xvfb
+
+      - name: Create an app that depends on the package
+        run: |
+          set -euo pipefail
+          flutter create --platforms=${{ matrix.platform }} --org org.otzaria probe
+          cd probe
+          flutter pub add "opentype_shaper:{path: ../opentype_shaper}"
+          flutter pub add "dev:integration_test:{sdk: flutter}"
+          mkdir -p integration_test
+          cat > integration_test/load_test.dart <<'EOF'
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:integration_test/integration_test.dart';
+          import 'package:opentype_shaper/opentype_shaper.dart';
+
+          void main() {
+            IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+            testWidgets('the bundled library loads and agrees on the ABI', (_) async {
+              expect(ShaperLibrary.abiVersion, 1);
+              expect(ShaperLibrary.recordFields, 6);
+            });
+          }
+          EOF
+
+      - name: Run on the Linux desktop
+        if: matrix.platform == 'linux'
+        working-directory: probe
+        run: xvfb-run -a flutter test integration_test -d linux
+
+      - name: Run on the Windows desktop
+        if: matrix.platform == 'windows'
+        working-directory: probe
+        run: flutter test integration_test -d windows
+
+      - name: Run on the macOS desktop
+        if: matrix.platform == 'macos'
+        working-directory: probe
+        run: flutter test integration_test -d macos
+
+      - name: Run on an iOS simulator
+        if: matrix.platform == 'ios'
+        working-directory: probe
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available -j \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,l in d.items() if "iOS" in r for x in l if x["name"].startswith("iPhone")))')
+          xcrun simctl boot "$udid"
+          flutter test integration_test -d "$udid"
+
+      - name: Prepare the Android emulator
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          # Only the emulator ABI, or the hook compiles all three from source.
+          echo 'target-platform=android-x64' >> probe/android/gradle.properties
+
+      # API 24 is the app's minSdk: a library linked against newer libc symbols
+      # fails to load here.
+      - name: Run on an Android emulator
+        if: matrix.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 24
+          arch: x86_64
+          target: default
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          working-directory: probe
+          script: flutter test integration_test -d emulator-5554

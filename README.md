@@ -57,17 +57,23 @@ by glyph.
 
 ## Building
 
-The Rust crate lives in `rust/` and is built by
-[cargokit](https://github.com/irondash/cargokit) as part of the Flutter build.
-Until precompiled binaries are published, a Rust toolchain is required. Adding
-`rust/cargokit.yaml` with a `precompiled_binaries` block (release URL prefix and
-the signing public key) switches consumers to downloading them instead; the
-file must then hold that block, because cargokit rejects an empty one.
+The Rust crate in `rust/` reaches the app through the package's build hook
+(`hook/build.dart`), so it needs no platform plugin code and works with Swift
+Package Manager as well as CocoaPods. The hook downloads the signed binary
+published for the crate's content hash and compiles it with cargo only when
+none is published, which requires [Rust](https://rustup.rs). An app can force
+the source build:
 
-Tests need the compiled library and a font:
+```yaml
+hooks:
+  user_defines:
+    opentype_shaper:
+      build_from_source: true
+```
+
+Tests need a font; `flutter test` builds the library itself:
 
 ```sh
-cargo build --release --manifest-path rust/Cargo.toml
 OPENTYPE_SHAPER_TEST_FONT=/path/to/NotoSerifHebrew.ttf flutter test
 ```
 
