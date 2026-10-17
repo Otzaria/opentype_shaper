@@ -1,7 +1,8 @@
 name: Precompiled Binaries
 
 # Publishes the signed libraries the build hook downloads, one release per
-# crate hash. The hash covers rust/ and hook/, so any change there publishes.
+# crate hash. The hash covers rust/, hook/ and lib/src/hook/, so any change
+# there publishes.
 on:
   push:
     branches:
@@ -9,6 +10,7 @@ on:
     paths:
       - ".github/workflows/precompiled-binaries.yml"
       - "hook/**"
+      - "lib/src/hook/**"
       - "rust/**"
       - "tool/precompiled_binaries/**"
   workflow_dispatch:
@@ -16,6 +18,7 @@ on:
     paths:
       - ".github/workflows/precompiled-binaries.yml"
       - "hook/**"
+      - "lib/src/hook/**"
       - "rust/**"
       - "tool/precompiled_binaries/**"
 

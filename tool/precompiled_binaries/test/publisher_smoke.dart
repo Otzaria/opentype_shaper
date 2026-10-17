@@ -5,9 +5,9 @@ import 'package:code_assets/code_assets.dart';
 import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'package:path/path.dart' as p;
 
-import '../../../hook/build.dart' show nativeBuild;
-import '../../../hook/src/precompiled.dart';
-import '../../../hook/src/rust_target.dart';
+import '../../../lib/src/hook/package_build.dart';
+import '../../../lib/src/hook/precompiled.dart';
+import '../../../lib/src/hook/rust_target.dart';
 
 /// Builds the publisher's targets with a disposable key and checks the artifacts.
 Future<void> main(List<String> targets) async {
