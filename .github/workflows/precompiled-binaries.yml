@@ -24,7 +24,7 @@ permissions:
 
 concurrency:
   group: precompiled-binaries-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -71,7 +71,7 @@ jobs:
           fi
 
   publish:
-    name: Publish ${{ matrix.name }}
+    name: ${{ github.event_name == 'pull_request' && 'Verify' || 'Publish' }} ${{ matrix.name }}
     needs: prepare-release
     if: needs.prepare-release.outputs.complete != 'true'
     runs-on: ${{ matrix.runs_on }}

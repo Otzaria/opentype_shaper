@@ -28,7 +28,7 @@ jobs:
         flutter: [3.47.2]
         include:
           - os: ubuntu-24.04
-            flutter: 3.38.0
+            flutter: 3.38.1
     steps:
       - uses: actions/checkout@v5
 
