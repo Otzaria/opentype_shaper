@@ -71,6 +71,11 @@ hooks:
       build_from_source: true
 ```
 
+Published iOS device libraries target iOS 12, the framework minimum Flutter
+3.38.1 writes, and the publisher checks the final Mach-O before signing so App
+Store validation accepts them. ARM64 simulator libraries target iOS 14, Rust's
+minimum for that target.
+
 Tests need a font; `flutter test` builds the library itself:
 
 ```sh
