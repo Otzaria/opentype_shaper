@@ -1,3 +1,15 @@
+## 0.3.0
+
+- **Breaking:** the native library is built and bundled by a Dart build hook
+  (native assets) instead of cargokit, so apps can enable Swift Package
+  Manager. The hook downloads the signed precompiled binary for the crate and
+  falls back to cargo only when none is published; set
+  `hooks: user_defines: opentype_shaper: build_from_source: true` to force a
+  source build.
+- **Breaking:** `ShaperLibrary.path` is removed. The bindings use `@Native`
+  and load in every isolate, including `flutter test` on the host.
+- Requires Flutter 3.38.1 or later.
+
 ## 0.2.0
 
 - `subsetFontForPdf`: a PDF font program subset by glyph id, keeping ids in
