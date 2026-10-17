@@ -1,3 +1,10 @@
+## 0.3.1
+
+- Precompiled iOS device libraries target iOS 12, the framework minimum Flutter
+  3.38.1 writes, so App Store validation accepts them; the publisher checks the
+  final Mach-O before signing. ARM64 simulator libraries target iOS 14.
+- The build hook compiles only the library (`cargo build --lib`).
+
 ## 0.3.0
 
 - **Breaking:** the native library is built and bundled by a Dart build hook
