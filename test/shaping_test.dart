@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +27,10 @@ void main() {
     test('load the native library and agree on the ABI', () {
       expect(ShaperLibrary.abiVersion, 1);
       expect(ShaperLibrary.recordFields, 6);
+    });
+
+    test('load the native library in a worker isolate', () async {
+      expect(await Isolate.run(() => ShaperLibrary.abiVersion), 1);
     });
   });
 

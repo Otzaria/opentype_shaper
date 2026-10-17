@@ -19,20 +19,23 @@ env:
 
 jobs:
   package-tests:
-    name: flutter test (${{ matrix.os }})
+    name: flutter test (${{ matrix.os }}, ${{ matrix.flutter }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022, macos-15]
+        flutter: [3.47.2]
+        include:
+          - os: ubuntu-24.04
+            flutter: 3.38.0
     steps:
       - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # The app's Flutter, whose hooks runner ships the library.
-          flutter-version: 3.47.2
+          flutter-version: ${{ matrix.flutter }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -43,6 +46,8 @@ jobs:
           curl -fsSL -o rust/tests/fonts/NotoSerifHebrew.ttf "$FONT_URL"
 
       - run: flutter pub get
+
+      - run: flutter analyze
 
       - name: flutter test
         run: flutter test
@@ -165,3 +170,14 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           working-directory: probe
           script: flutter test integration_test -d emulator-5554
+
+      - name: Build the release app
+        working-directory: probe
+        run: |
+          if [ '${{ matrix.platform }}' = ios ]; then
+            flutter build ios --release --no-codesign
+          elif [ '${{ matrix.platform }}' = android ]; then
+            flutter build apk --release
+          else
+            flutter build '${{ matrix.platform }}' --release
+          fi
