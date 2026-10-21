@@ -1,3 +1,8 @@
+## 0.3.2
+
+- Added an example (`example/main.dart`) that shapes a Hebrew word and subsets
+  the font for a PDF.
+
 ## 0.3.1
 
 - Precompiled iOS device libraries target iOS 12, the framework minimum Flutter
