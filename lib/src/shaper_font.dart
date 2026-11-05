@@ -45,7 +45,12 @@ class ShaperFont {
           code: handle,
         );
       }
-      return ShaperFont._attach(handle, ownsHandle: true);
+      try {
+        return ShaperFont._attach(handle, ownsHandle: true);
+      } catch (_) {
+        bindings.releaseFont(handle);
+        rethrow;
+      }
     } finally {
       calloc.free(native);
     }
@@ -59,29 +64,30 @@ class ShaperFont {
   ///
   /// An attached font does not own the registry reference: disposing it frees
   /// only its own buffers, and the isolate that registered the font releases it.
+  /// Keep that owner alive until every attached font has finished its work and
+  /// has been disposed, including when a worker fails.
   factory ShaperFont.attach(int handle) =>
       ShaperFont._attach(handle, ownsHandle: false);
 
-  factory ShaperFont._attach(int handle, {required bool ownsHandle}) {
-    final bindings = ShaperBindings.instance;
-    final fieldCount = bindings.metricFields();
+  factory ShaperFont._attach(int handle, {required bool ownsHandle}) =>
+      using((arena) {
+        final bindings = ShaperBindings.instance;
+        final fieldCount = bindings.metricFields();
 
-    final metricBuffer = calloc<Int32>(fieldCount);
-    final countBuffer = calloc<Uint32>();
-    try {
-      var status = bindings.fontMetrics(
-        handle,
-        metricBuffer,
-        fieldCount,
-        countBuffer,
-      );
-      _check(status, 'read the font metrics');
-      final metrics = FontMetrics.fromNative(
-        Int32List.fromList(metricBuffer.asTypedList(fieldCount)),
-      );
+        final metricBuffer = arena<Int32>(fieldCount);
+        final countBuffer = arena<Uint32>();
+        var status = bindings.fontMetrics(
+          handle,
+          metricBuffer,
+          fieldCount,
+          countBuffer,
+        );
+        _check(status, 'read the font metrics');
+        final metrics = FontMetrics.fromNative(
+          Int32List.fromList(metricBuffer.asTypedList(fieldCount)),
+        );
 
-      final advances = calloc<Uint16>(metrics.glyphCount);
-      try {
+        final advances = arena<Uint16>(metrics.glyphCount);
         status = bindings.glyphAdvances(
           handle,
           advances,
@@ -100,14 +106,7 @@ class ShaperFont {
           _readPostScriptName(bindings, handle, countBuffer),
           ownsHandle: ownsHandle,
         );
-      } finally {
-        calloc.free(advances);
-      }
-    } finally {
-      calloc.free(metricBuffer);
-      calloc.free(countBuffer);
-    }
-  }
+      });
 
   static String _readPostScriptName(
     ShaperBindings bindings,
@@ -298,11 +297,15 @@ class ShaperFont {
       return _textBuffer!;
     }
     final existing = _textBuffer;
+    _textBuffer = null;
+    _textCapacity = 0;
     if (existing != null) {
       calloc.free(existing);
     }
-    _textCapacity = units < 64 ? 64 : units * 2;
-    return _textBuffer = calloc<Uint16>(_textCapacity);
+    final capacity = units < 64 ? 64 : units * 2;
+    final next = calloc<Uint16>(capacity);
+    _textCapacity = capacity;
+    return _textBuffer = next;
   }
 
   Pointer<Int32> _ensureOutCapacity(int records, int fieldsPerGlyph) {
@@ -310,11 +313,15 @@ class ShaperFont {
       return _outBuffer!;
     }
     final existing = _outBuffer;
+    _outBuffer = null;
+    _outCapacityRecords = 0;
     if (existing != null) {
       calloc.free(existing);
     }
-    _outCapacityRecords = records < 64 ? 64 : records * 2;
-    return _outBuffer = calloc<Int32>(_outCapacityRecords * fieldsPerGlyph);
+    final capacity = records < 64 ? 64 : records * 2;
+    final next = calloc<Int32>(capacity * fieldsPerGlyph);
+    _outCapacityRecords = capacity;
+    return _outBuffer = next;
   }
 
   static int _scriptTag(String script) {
@@ -337,10 +344,11 @@ class ShaperFont {
     }
   }
 
-  /// Releases the native reference and the scratch buffers.
+  /// Releases this instance's scratch buffers and, for a registered font, its
+  /// native reference. Calling this more than once is harmless.
   ///
-  /// Attaching to the same handle elsewhere keeps the entry alive; the parsed
-  /// font is freed once the last reference goes.
+  /// Only [ShaperFont.register] retains a reference. [ShaperFont.attach] borrows
+  /// one, so all borrowers must finish before their owner is disposed.
   void dispose() {
     if (_disposed) {
       return;

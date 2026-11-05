@@ -1,3 +1,11 @@
+## Unreleased
+
+- Release the registered native reference if loading metrics or advances fails.
+- Scope temporary metadata allocations and keep scratch allocation state valid
+  when growing a buffer cannot allocate memory.
+- Clarify that attached fonts borrow their owner's reference and require their
+  own disposal after shaping, before the owner is released.
+
 ## 0.3.2
 
 - Added an example (`example/main.dart`) that shapes a Hebrew word and subsets

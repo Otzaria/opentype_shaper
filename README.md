@@ -22,13 +22,14 @@ bridge runtime and nothing to initialise at startup.
 import 'package:opentype_shaper/opentype_shaper.dart';
 
 final font = ShaperFont.register(fontBytes);
-
-final run = font.shape('שָׁלוֹם', rtl: true, script: 'hebr');
-for (var i = 0; i < run.glyphCount; i++) {
-  // run.glyphId(i), run.xAdvance(i), run.xOffset(i), run.yOffset(i)
+try {
+  final run = font.shape('שָׁלוֹם', rtl: true, script: 'hebr');
+  for (var i = 0; i < run.glyphCount; i++) {
+    // run.glyphId(i), run.xAdvance(i), run.xOffset(i), run.yOffset(i)
+  }
+} finally {
+  font.dispose();
 }
-
-font.dispose();
 ```
 
 Results are in font units; divide by `font.metrics.unitsPerEm` and multiply by
@@ -37,6 +38,37 @@ consumer advances the pen positively while emitting them in sequence.
 
 `ShaperFont.attach(handle)` lets a background isolate use a font the main
 isolate registered, by passing the integer handle rather than the bytes.
+It **borrows** the native registry entry; it does not add a reference. Every
+attached instance still owns reusable native scratch buffers and must be
+disposed in the isolate that used it. Keep the registered owner alive until
+the worker's future has completed, on success or failure:
+
+```dart
+final owner = ShaperFont.register(fontBytes);
+try {
+  final handle = owner.handle;
+  await Isolate.run(() {
+    final attached = ShaperFont.attach(handle);
+    try {
+      return attached.shape('123').records;
+    } finally {
+      attached.dispose();
+    }
+  });
+} finally {
+  owner.dispose();
+}
+```
+
+The isolate example also needs `import 'dart:isolate';`. Do not release the
+owner after a timeout while its worker is still running. Killing an isolate
+does not execute its `finally` blocks; let it finish and clean up cooperatively.
+
+On Linux with glibc, `dart run tool/lifecycle_probe.dart /path/to/font.ttf`
+measures native allocator bytes and RSS over 30 worker lifecycles. Run it in
+a separate process with `--retain-buffers` to reproduce the missing-dispose
+case. The latter intentionally keeps scratch allocations until process exit;
+both modes check the same shaping output after five warm-up cycles.
 
 ### Embedding in a PDF
 
