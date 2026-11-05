@@ -45,7 +45,12 @@ class ShaperFont {
           code: handle,
         );
       }
-      return ShaperFont._attach(handle, ownsHandle: true);
+      try {
+        return ShaperFont._attach(handle, ownsHandle: true);
+      } catch (_) {
+        bindings.releaseFont(handle);
+        rethrow;
+      }
     } finally {
       calloc.free(native);
     }
@@ -57,18 +62,18 @@ class ShaperFont {
   /// background isolate can shape with a font the main isolate registered by
   /// passing the handle across rather than the bytes.
   ///
-  /// An attached font does not own the registry reference: disposing it frees
-  /// only its own buffers, and the isolate that registered the font releases it.
+  /// An attached font borrows the registry reference. Dispose it to release
+  /// its own buffers, and keep a registered owner alive until all attached
+  /// fonts have finished using the handle, including work in other isolates.
   factory ShaperFont.attach(int handle) =>
       ShaperFont._attach(handle, ownsHandle: false);
 
   factory ShaperFont._attach(int handle, {required bool ownsHandle}) {
     final bindings = ShaperBindings.instance;
     final fieldCount = bindings.metricFields();
-
-    final metricBuffer = calloc<Int32>(fieldCount);
-    final countBuffer = calloc<Uint32>();
-    try {
+    return using((arena) {
+      final metricBuffer = arena<Int32>(fieldCount);
+      final countBuffer = arena<Uint32>();
       var status = bindings.fontMetrics(
         handle,
         metricBuffer,
@@ -79,34 +84,25 @@ class ShaperFont {
       final metrics = FontMetrics.fromNative(
         Int32List.fromList(metricBuffer.asTypedList(fieldCount)),
       );
-
-      final advances = calloc<Uint16>(metrics.glyphCount);
-      try {
-        status = bindings.glyphAdvances(
-          handle,
-          advances,
-          metrics.glyphCount,
-          countBuffer,
-        );
-        _check(status, 'read the glyph advances');
-        final glyphAdvances = Uint16List.fromList(
-          advances.asTypedList(countBuffer.value),
-        );
-
-        return ShaperFont._(
-          handle,
-          metrics,
-          glyphAdvances,
-          _readPostScriptName(bindings, handle, countBuffer),
-          ownsHandle: ownsHandle,
-        );
-      } finally {
-        calloc.free(advances);
-      }
-    } finally {
-      calloc.free(metricBuffer);
-      calloc.free(countBuffer);
-    }
+      final advances = arena<Uint16>(metrics.glyphCount);
+      status = bindings.glyphAdvances(
+        handle,
+        advances,
+        metrics.glyphCount,
+        countBuffer,
+      );
+      _check(status, 'read the glyph advances');
+      final glyphAdvances = Uint16List.fromList(
+        advances.asTypedList(countBuffer.value),
+      );
+      return ShaperFont._(
+        handle,
+        metrics,
+        glyphAdvances,
+        _readPostScriptName(bindings, handle, countBuffer),
+        ownsHandle: ownsHandle,
+      );
+    });
   }
 
   static String _readPostScriptName(
@@ -337,10 +333,10 @@ class ShaperFont {
     }
   }
 
-  /// Releases the native reference and the scratch buffers.
+  /// Releases this instance's scratch buffers and any owned registry reference.
   ///
-  /// Attaching to the same handle elsewhere keeps the entry alive; the parsed
-  /// font is freed once the last reference goes.
+  /// Only [ShaperFont.register] owns a reference. Attached fonts do not retain
+  /// the registry entry; finish their work before disposing the last owner.
   void dispose() {
     if (_disposed) {
       return;
