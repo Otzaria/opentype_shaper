@@ -62,9 +62,10 @@ class ShaperFont {
   /// background isolate can shape with a font the main isolate registered by
   /// passing the handle across rather than the bytes.
   ///
-  /// An attached font borrows the registry reference. Dispose it to release
-  /// its own buffers, and keep a registered owner alive until all attached
-  /// fonts have finished using the handle, including work in other isolates.
+  /// An attached font does not own the registry reference: disposing it frees
+  /// only its own buffers, and the isolate that registered the font releases it.
+  /// Keep that owner alive until every attached font has finished its work and
+  /// has been disposed, including when a worker fails.
   factory ShaperFont.attach(int handle) =>
       ShaperFont._attach(handle, ownsHandle: false);
 
@@ -294,11 +295,15 @@ class ShaperFont {
       return _textBuffer!;
     }
     final existing = _textBuffer;
+    _textBuffer = null;
+    _textCapacity = 0;
     if (existing != null) {
       calloc.free(existing);
     }
-    _textCapacity = units < 64 ? 64 : units * 2;
-    return _textBuffer = calloc<Uint16>(_textCapacity);
+    final capacity = units < 64 ? 64 : units * 2;
+    final next = calloc<Uint16>(capacity);
+    _textCapacity = capacity;
+    return _textBuffer = next;
   }
 
   Pointer<Int32> _ensureOutCapacity(int records, int fieldsPerGlyph) {
@@ -306,11 +311,15 @@ class ShaperFont {
       return _outBuffer!;
     }
     final existing = _outBuffer;
+    _outBuffer = null;
+    _outCapacityRecords = 0;
     if (existing != null) {
       calloc.free(existing);
     }
-    _outCapacityRecords = records < 64 ? 64 : records * 2;
-    return _outBuffer = calloc<Int32>(_outCapacityRecords * fieldsPerGlyph);
+    final capacity = records < 64 ? 64 : records * 2;
+    final next = calloc<Int32>(capacity * fieldsPerGlyph);
+    _outCapacityRecords = capacity;
+    return _outBuffer = next;
   }
 
   static int _scriptTag(String script) {
@@ -333,10 +342,11 @@ class ShaperFont {
     }
   }
 
-  /// Releases this instance's scratch buffers and any owned registry reference.
+  /// Releases this instance's scratch buffers and, for a registered font, its
+  /// native reference. Calling this more than once is harmless.
   ///
-  /// Only [ShaperFont.register] owns a reference. Attached fonts do not retain
-  /// the registry entry; finish their work before disposing the last owner.
+  /// Only [ShaperFont.register] retains a reference. [ShaperFont.attach] borrows
+  /// one, so all borrowers must finish before their owner is disposed.
   void dispose() {
     if (_disposed) {
       return;
