@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.3
 
 - Release the registered native reference if loading metrics or advances fails.
 - Scope temporary metadata allocations and keep scratch allocation state valid
