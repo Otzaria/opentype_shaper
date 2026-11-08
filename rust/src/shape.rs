@@ -1,11 +1,20 @@
 //! Shaping one run of text.
 
+use std::cell::RefCell;
 use std::str::FromStr;
 
 use harfrust::{script, Direction, Feature, Language, Script, ShapeOptions, Tag, UnicodeBuffer};
 
 use crate::registry::FontEntry;
 use crate::RECORD_FIELDS;
+
+// Reuse HarfRust's glyph and Unicode allocations for successive short runs on
+// the same native thread. A page prints many small Hebrew words; allocating
+// both vectors for every uncached word is unnecessary.
+const MAX_RETAINED_TEXT_UNITS: usize = 4096;
+std::thread_local! {
+    static SHAPE_BUFFER: RefCell<UnicodeBuffer> = RefCell::new(UnicodeBuffer::new());
+}
 
 pub struct ShapeRequest<'a> {
     /// UTF-16 code units, as Dart stores strings.
@@ -70,61 +79,79 @@ pub fn shape(
     let font = entry.font()?;
     let shaper = entry.shaper_data().shaper(&font).build();
 
-    let mut buffer = UnicodeBuffer::new();
-    buffer.reserve(request.text.len());
-    fill_buffer(request.text, &mut buffer);
+    SHAPE_BUFFER.with(|slot| {
+        let mut reusable = slot.borrow_mut();
+        // Very large individual runs should not permanently grow a thread's
+        // scratch memory. They use a temporary buffer without evicting the
+        // small-run cache.
+        let retain = request.text.len() <= MAX_RETAINED_TEXT_UNITS;
+        let mut buffer = if retain {
+            std::mem::replace(&mut *reusable, UnicodeBuffer::new())
+        } else {
+            UnicodeBuffer::new()
+        };
+        buffer.reserve(request.text.len());
+        fill_buffer(request.text, &mut buffer);
 
-    buffer.set_direction(if request.rtl {
-        Direction::RightToLeft
-    } else {
-        Direction::LeftToRight
-    });
-    if request.script_tag != 0 {
-        if let Some(script) = Script::from_iso15924_tag(Tag::from_u32(request.script_tag)) {
-            buffer.set_script(script);
+        buffer.set_direction(if request.rtl {
+            Direction::RightToLeft
+        } else {
+            Direction::LeftToRight
+        });
+        if request.script_tag != 0 {
+            if let Some(script) = Script::from_iso15924_tag(Tag::from_u32(request.script_tag)) {
+                buffer.set_script(script);
+            }
         }
-    }
-    if let Some(language) = request.language.and_then(Language::new) {
-        buffer.set_language(language);
-    }
-    if request.script_tag == 0 {
-        buffer.guess_segment_properties();
-    }
+        if let Some(language) = request.language.and_then(Language::new) {
+            buffer.set_language(language);
+        }
+        if request.script_tag == 0 {
+            buffer.guess_segment_properties();
+        }
 
-    let features = parse_features(request.features);
-    let buffer_script = buffer.script();
-    let language = buffer.language();
-    let plan = entry.plan(
-        &shaper,
-        buffer.direction(),
-        (buffer_script != script::UNKNOWN).then_some(buffer_script),
-        language.as_ref(),
-        &features,
-    );
-    let glyphs = shaper.shape(
-        buffer,
-        ShapeOptions::default()
-            .features(&features)
-            .plan(Some(&plan)),
-    );
+        let features = parse_features(request.features);
+        let buffer_script = buffer.script();
+        let language = buffer.language();
+        let plan = entry.plan(
+            &shaper,
+            buffer.direction(),
+            (buffer_script != script::UNKNOWN).then_some(buffer_script),
+            language.as_ref(),
+            &features,
+        );
+        let glyphs = shaper.shape(
+            buffer,
+            ShapeOptions::default()
+                .features(&features)
+                .plan(Some(&plan)),
+        );
 
-    let infos = glyphs.glyph_infos();
-    let positions = glyphs.glyph_positions();
-    let count = infos.len().min(positions.len());
+        let infos = glyphs.glyph_infos();
+        let positions = glyphs.glyph_positions();
+        let count = infos.len().min(positions.len());
 
-    if out.len() < count * RECORD_FIELDS {
-        return Ok(ShapeOutcome::NeedsCapacity(count));
-    }
+        let outcome = if out.len() < count * RECORD_FIELDS {
+            ShapeOutcome::NeedsCapacity(count)
+        } else {
+            for (index, (info, position)) in infos.iter().zip(positions.iter()).enumerate() {
+                let base = index * RECORD_FIELDS;
+                out[base] = info.glyph_id as i32;
+                out[base + 1] = info.cluster as i32;
+                out[base + 2] = position.x_advance;
+                out[base + 3] = position.y_advance;
+                out[base + 4] = position.x_offset;
+                out[base + 5] = position.y_offset;
+            }
+            ShapeOutcome::Written(count)
+        };
 
-    for (index, (info, position)) in infos.iter().zip(positions.iter()).enumerate() {
-        let base = index * RECORD_FIELDS;
-        out[base] = info.glyph_id as i32;
-        out[base + 1] = info.cluster as i32;
-        out[base + 2] = position.x_advance;
-        out[base + 3] = position.y_advance;
-        out[base + 4] = position.x_offset;
-        out[base + 5] = position.y_offset;
-    }
-
-    Ok(ShapeOutcome::Written(count))
+        // GlyphBuffer::clear resets the buffer's segment properties as well as
+        // its content, keeping capacity. This matters when a subsequent call
+        // switches from Hebrew to Latin, changes language or requests guessing.
+        if retain {
+            *reusable = glyphs.clear();
+        }
+        Ok(outcome)
+    })
 }
