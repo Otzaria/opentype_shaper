@@ -86,7 +86,7 @@ pub fn shape(
         // small-run cache.
         let retain = request.text.len() <= MAX_RETAINED_TEXT_UNITS;
         let mut buffer = if retain {
-            std::mem::replace(&mut *reusable, UnicodeBuffer::new())
+            std::mem::take(&mut *reusable)
         } else {
             UnicodeBuffer::new()
         };
