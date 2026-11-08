@@ -161,22 +161,29 @@ class ShaperFont {
   /// the cache turns most shaping calls into a map lookup.
   int cacheCapacity = 8192;
 
-  /// Approximate byte budget of the per-font shaped-run cache. Both the text
-  /// and glyph records contribute to the estimate; object overhead is included
+  /// Approximate byte budget of the per-font shaped-run cache. Text, shaping
+  /// options and glyph records contribute; object overhead is included
   /// conservatively. Set to zero to disable caching.
+  /// Native scratch buffers and encoded options are outside this budget.
   int cacheByteCapacity = 8 * 1024 * 1024;
 
   final LinkedHashMap<_ShapeKey, ShapedRun> _cache = LinkedHashMap();
   int _cacheBytes = 0;
 
-  static int _retainedBytes(ShapedRun run) =>
-      run.text.length * 2 + run.records.lengthInBytes + 96;
+  static int _retainedBytes(_ShapeKey key, ShapedRun run) =>
+      (run.text.length +
+              key.script.length +
+              (key.language?.length ?? 0) +
+              (key.features?.length ?? 0)) *
+          2 +
+      run.records.lengthInBytes +
+      96;
 
   void _trimCache() {
     while (_cache.isNotEmpty &&
         (_cache.length > cacheCapacity || _cacheBytes > cacheByteCapacity)) {
       final oldest = _cache.keys.first;
-      _cacheBytes -= _retainedBytes(_cache.remove(oldest)!);
+      _cacheBytes -= _retainedBytes(oldest, _cache.remove(oldest)!);
     }
   }
 
@@ -224,7 +231,7 @@ class ShaperFont {
     }
 
     final run = _shapeUncached(text, rtl, script, language, features);
-    final cost = _retainedBytes(run);
+    final cost = _retainedBytes(key, run);
     // A single oversized run would otherwise evict every useful word and
     // still remain in the cache. It can be shaped normally without retention.
     if (cost <= cacheByteCapacity) {

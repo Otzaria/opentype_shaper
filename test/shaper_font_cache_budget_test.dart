@@ -15,6 +15,53 @@ void main() {
 
     tearDown(() => font.dispose());
 
+    test('cache budget includes strings retained by the shaping key', () {
+      font.cacheByteCapacity = 512;
+      final script = 'x' * 4096;
+      final first = font.shape('שלום', script: script);
+      final second = font.shape('שלום', script: script);
+      expect(identical(first, second), isFalse);
+      expect(second.records, orderedEquals(first.records));
+    });
+
+    test('an oversized run preserves already cached short words', () {
+      font.cacheByteCapacity = 512;
+      final first = font.shape('שלום', rtl: true, script: 'hebr');
+      font.shape('שלום ' * 1000, rtl: true, script: 'hebr');
+      expect(
+        identical(first, font.shape('שלום', rtl: true, script: 'hebr')),
+        isTrue,
+      );
+    });
+
+    test('cache hits update recency without consuming more byte budget', () {
+      final first = font.shape('שלום');
+      final cost = first.text.length * 2 + first.records.lengthInBytes + 96;
+      font.cacheByteCapacity = cost * 2;
+      final second = font.shape('עולם');
+      for (var i = 0; i < 10; i++) {
+        expect(identical(first, font.shape('שלום')), isTrue);
+      }
+      font.shape('אדם ');
+      expect(identical(first, font.shape('שלום')), isTrue);
+      expect(identical(second, font.shape('עולם')), isFalse);
+    });
+
+    for (final byteLimit in [false, true]) {
+      test('negative ${byteLimit ? 'byte' : 'entry'} limit disables hits', () {
+        final first = font.shape('שלום');
+        if (byteLimit) {
+          font.cacheByteCapacity = -1;
+        } else {
+          font.cacheCapacity = -1;
+        }
+        expect(identical(first, font.shape('שלום')), isFalse);
+        font.cacheCapacity = 8192;
+        font.cacheByteCapacity = 8 * 1024 * 1024;
+        expect(identical(first, font.shape('שלום')), isFalse);
+      });
+    }
+
     test('short repeated Hebrew words still hit the LRU', () {
       final first = font.shape('שלום', rtl: true, script: 'hebr');
       final second = font.shape('שלום', rtl: true, script: 'hebr');
@@ -34,7 +81,9 @@ void main() {
     test('byte budget evicts least-recently-used runs', () {
       final first = font.shape('שלום', rtl: true, script: 'hebr');
       final estimatedBytes =
-          first.text.length * 2 + first.records.lengthInBytes + 96;
+          (first.text.length + 'hebr'.length) * 2 +
+          first.records.lengthInBytes +
+          96;
       font.cacheByteCapacity = estimatedBytes;
 
       // Same-length Hebrew words with four glyphs cannot both fit.
