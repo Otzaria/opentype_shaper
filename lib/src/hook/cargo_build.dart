@@ -41,8 +41,14 @@ final class TargetToolchain {
           },
           androidApi: code.android.targetNdkApi,
         ),
-        OS.iOS => TargetToolchain(appleVersion: '${code.iOS.targetVersion}.0'),
+        OS.iOS => TargetToolchain(
+          // code_assets 1.2.1 lacks deploymentVersion; keep compatibility.
+          // ignore: deprecated_member_use
+          appleVersion: '${code.iOS.targetVersion}.0',
+        ),
         OS.macOS => TargetToolchain(
+          // code_assets 1.2.1 lacks deploymentVersion; keep compatibility.
+          // ignore: deprecated_member_use
           appleVersion: '${code.macOS.targetVersion}.0',
         ),
         _ => const TargetToolchain(),
