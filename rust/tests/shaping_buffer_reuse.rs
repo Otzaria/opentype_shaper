@@ -44,7 +44,7 @@ fn shape(handle: i64, case: &Case) -> Vec<i32> {
 fn cases() -> Vec<Case> {
     let hebrew = "שָׁ֖לוֹם".encode_utf16().collect();
     let latin = "Hello ABC 123".encode_utf16().collect();
-    vec![
+    let mut cases = vec![
         Case {
             text: hebrew,
             rtl: true,
@@ -80,7 +80,16 @@ fn cases() -> Vec<Case> {
             language: "",
             features: "-mark",
         },
-    ]
+    ];
+    for length in [4096, 4097] {
+        let mut case = cases[0].clone();
+        case.text = vec![0x05E9; length];
+        cases.push(case);
+    }
+    let mut case = cases[1].clone();
+    case.text = vec![0xD83D, 0xDE00, 0xD800, 0x0061, 0xDC00];
+    cases.push(case);
+    cases
 }
 
 #[test]
