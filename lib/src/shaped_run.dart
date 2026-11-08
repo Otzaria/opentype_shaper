@@ -107,14 +107,39 @@ class ShapedRun {
       }
     }
 
-    // Ascending starts make "the next one along" the end of each range,
-    // whichever direction the run was shaped in.
-    final ascending = List<int>.of(starts)..sort();
-    final endOf = <int, int>{};
-    for (var index = 0; index < ascending.length; index++) {
-      endOf[ascending[index]] = index + 1 < ascending.length
-          ? ascending[index + 1]
-          : text.length;
+    // HarfRust normally emits monotonic UTF-16 clusters. End offsets can
+    // therefore be found from adjacent starts without sorting every word and
+    // allocating a lookup map. Keep the general path for unusual input.
+    var isAscending = true;
+    var isDescending = true;
+    for (var index = 1; index < starts.length; index++) {
+      if (starts[index] < starts[index - 1]) {
+        isAscending = false;
+      }
+      if (starts[index] > starts[index - 1]) {
+        isDescending = false;
+      }
+    }
+
+    Map<int, int>? endOf;
+    if (!isAscending && !isDescending) {
+      final sorted = List<int>.of(starts)..sort();
+      endOf = <int, int>{};
+      for (var index = 0; index < sorted.length; index++) {
+        endOf[sorted[index]] = index + 1 < sorted.length
+            ? sorted[index + 1]
+            : text.length;
+      }
+    }
+
+    int clusterEnd(int group) {
+      if (isAscending) {
+        return group + 1 < starts.length ? starts[group + 1] : text.length;
+      }
+      if (isDescending) {
+        return group > 0 ? starts[group - 1] : text.length;
+      }
+      return endOf![starts[group]] ?? text.length;
     }
 
     return [
@@ -123,7 +148,7 @@ class ShapedRun {
           firstGlyph: firstGlyphs[group],
           glyphCount: counts[group],
           textStart: starts[group],
-          textEnd: endOf[starts[group]] ?? text.length,
+          textEnd: clusterEnd(group),
         ),
     ];
   }
