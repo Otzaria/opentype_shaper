@@ -69,6 +69,11 @@ measures native allocator bytes and RSS over 30 worker lifecycles. Run it in
 a separate process with `--retain-buffers` to reproduce the missing-dispose
 case. The latter intentionally keeps scratch allocations until process exit;
 both modes check the same shaping output after five warm-up cycles.
+The allocator metric relies on glibc 2.33+ `mallinfo2`, which does **not**
+include every allocator arena or the Dart heap. RSS and allocator figures are
+process-level observations, not a complete leak inventory or per-font cost.
+Run both modes in fresh, comparable processes and interpret deltas alongside
+the reference-count lifecycle tests.
 
 ### Embedding in a PDF
 
