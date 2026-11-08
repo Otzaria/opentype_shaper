@@ -65,6 +65,25 @@ void main() {
     expect(() => subsetFontForPdf(bytes, const []), throwsFormatException);
   });
 
+  test('a truncated composite glyph throws FormatException', () {
+    final (bytes, offsets) = _fontWithTables(const [
+      ('head', 54),
+      ('hhea', 36),
+      ('hmtx', 4),
+      ('maxp', 6),
+      ('glyf', 12),
+      ('loca', 4),
+    ]);
+    final data = ByteData.sublistView(bytes);
+    data.setUint16(offsets['maxp']! + 4, 1);
+    // A single 12-byte outline (short loca offsets count 2-byte words).
+    data.setUint16(offsets['loca']! + 2, 6);
+    // Negative contour count denotes a composite. Its two-byte trailing
+    // fragment is too short for the mandatory component record.
+    data.setInt16(offsets['glyf']!, -1);
+    expect(() => subsetFontForPdf(bytes, const [0]), throwsFormatException);
+  });
+
   test('a descending loca offset throws FormatException', () {
     final (bytes, offsets) = _fontWithTables(const [
       ('head', 54),
