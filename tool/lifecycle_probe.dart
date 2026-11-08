@@ -5,7 +5,9 @@ import 'dart:isolate';
 
 import 'package:opentype_shaper/opentype_shaper.dart';
 
-// glibc reports allocator-owned bytes, independently of the Dart heap and GC.
+// On glibc 2.33+, mallinfo2 reports main-arena allocator statistics and
+// mmap allocations, not every thread arena or the Dart-managed heap.
+// Use only to compare controlled runs in fresh processes, alongside RSS.
 final class _MallInfo2 extends Struct {
   @Size()
   external int arena;
