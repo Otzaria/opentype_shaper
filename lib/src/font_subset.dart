@@ -231,14 +231,28 @@ final Uint8List _emptyCmap = Uint8List.fromList(const [
     }
     final (start, end) = rangeOf(glyph);
     // A negative contour count marks a composite, built from other glyphs.
-    if (end - start < 10 || glyfData.getInt16(start) >= 0) {
+    // Empty outlines are valid; a non-empty outline shorter than the header
+    // is not. A truncated composite must not produce a broken embedded font.
+    if (end == start) {
+      continue;
+    }
+    if (end - start < 10) {
+      throw FormatException('Glyph $glyph has a truncated outline header.');
+    }
+    if (glyfData.getInt16(start) >= 0) {
       continue;
     }
     var cursor = start + 10;
-    while (cursor + 4 <= end) {
+    while (true) {
+      if (cursor + 4 > end) {
+        throw FormatException('Glyph $glyph has a truncated component.');
+      }
       final flags = glyfData.getUint16(cursor);
       final component = glyfData.getUint16(cursor + 2);
-      if (component < numGlyphs && !keep.contains(component)) {
+      if (component >= numGlyphs) {
+        throw FormatException('Glyph $glyph has an invalid component id.');
+      }
+      if (!keep.contains(component)) {
         pending.add(component);
       }
       cursor += 4 + ((flags & 0x0001) != 0 ? 4 : 2);
@@ -249,7 +263,19 @@ final Uint8List _emptyCmap = Uint8List.fromList(const [
       } else if ((flags & 0x0080) != 0) {
         cursor += 8;
       }
+      if (cursor > end) {
+        throw FormatException('Glyph $glyph has truncated component data.');
+      }
       if ((flags & 0x0020) == 0) {
+        if ((flags & 0x0100) != 0) {
+          if (cursor + 2 > end) {
+            throw FormatException('Glyph $glyph has no instruction length.');
+          }
+          final instructionLength = glyfData.getUint16(cursor);
+          if (cursor + 2 + instructionLength > end) {
+            throw FormatException('Glyph $glyph has truncated instructions.');
+          }
+        }
         break;
       }
     }
