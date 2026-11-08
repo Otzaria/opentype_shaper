@@ -53,9 +53,17 @@ Uint8List subsetFontForPdf(
           entry.value.offset + entry.value.length,
         ),
   };
-  for (final tag in const ['head', 'hhea', 'hmtx', 'maxp']) {
-    if (!kept.containsKey(tag)) {
-      throw FormatException('The font has no $tag table.');
+  // Validate before reading fixed offsets or mutating a table. Bad user fonts
+  // must fail as FormatException so the PDF writer can use its fallback.
+  for (final (tag, minimumLength) in const [
+    ('head', 54),
+    ('hhea', 36),
+    ('hmtx', 4),
+    ('maxp', 6),
+  ]) {
+    final table = kept[tag];
+    if (table == null || table.length < minimumLength) {
+      throw FormatException('The $tag table is missing or truncated.');
     }
   }
   // The copy is edited below; the caller's bytes stay untouched.
@@ -70,6 +78,9 @@ Uint8List subsetFontForPdf(
 
   final glyf = kept['glyf'];
   final loca = kept['loca'];
+  if ((glyf == null) != (loca == null)) {
+    throw const FormatException('The TrueType outline tables are incomplete.');
+  }
   if (glyf != null && loca != null) {
     final head = ByteData.sublistView(kept['head']!);
     final numGlyphs = ByteData.sublistView(kept['maxp']!).getUint16(4);
@@ -115,6 +126,9 @@ int _faceOffset(ByteData data, int faceIndex) {
   final faceCount = data.getUint32(8);
   if (faceIndex < 0 || faceIndex >= faceCount) {
     throw FormatException('The collection has no face $faceIndex.');
+  }
+  if (faceCount > (data.lengthInBytes - 12) ~/ 4) {
+    throw const FormatException('The collection face directory is truncated.');
   }
   return data.getUint32(12 + faceIndex * 4);
 }
@@ -182,6 +196,9 @@ final Uint8List _emptyCmap = Uint8List.fromList(const [
   bool longOffsets,
   Iterable<int> glyphIds,
 ) {
+  if (numGlyphs == 0) {
+    throw const FormatException('The font has no glyphs.');
+  }
   final locaData = ByteData.sublistView(loca);
   final needed = (numGlyphs + 1) * (longOffsets ? 4 : 2);
   if (loca.length < needed) {
@@ -238,12 +255,20 @@ final Uint8List _emptyCmap = Uint8List.fromList(const [
     }
   }
 
-  final ranges = [
-    for (var glyph = 0; glyph < numGlyphs; glyph++) rangeOf(glyph),
-  ];
+  // Validate all loca entries without allocating one (start, end) record
+  // per glyph. A PDF may use a few hundred of a font's tens of thousands
+  // of glyphs, so keeping all ranges is unnecessary work and memory.
+  var previousOffset = 0;
+  for (var glyph = 0; glyph <= numGlyphs; glyph++) {
+    final offset = offsetOf(glyph);
+    if (offset < previousOffset || offset > glyf.length) {
+      throw FormatException('Glyph $glyph has an invalid loca offset.');
+    }
+    previousOffset = offset;
+  }
   var total = 0;
   for (final glyph in keep) {
-    final (start, end) = ranges[glyph];
+    final (start, end) = rangeOf(glyph);
     total += (end - start + 3) & ~3;
   }
   // Short offsets store half the byte offset, so they reach 128KB.
@@ -262,7 +287,7 @@ final Uint8List _emptyCmap = Uint8List.fromList(const [
     if (!keep.contains(glyph)) {
       continue;
     }
-    final (start, end) = ranges[glyph];
+    final (start, end) = rangeOf(glyph);
     newGlyf.setRange(cursor, cursor + end - start, glyf, start);
     cursor += (end - start + 3) & ~3;
   }
