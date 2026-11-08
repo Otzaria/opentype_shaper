@@ -1,3 +1,8 @@
+## Unreleased
+
+- Keep build-hook compatibility with code_assets 1.2.1 while avoiding
+  deprecation diagnostics from newer code_assets versions.
+
 ## 0.3.3
 
 - Release the registered native reference if loading metrics or advances fails.
