@@ -95,7 +95,11 @@ fn alternating_scripts_languages_and_features_match_fresh_threads() {
     let expected: Vec<Vec<i32>> = cases
         .iter()
         .cloned()
-        .map(|case| std::thread::spawn(move || shape(handle, &case)).join().unwrap())
+        .map(|case| {
+            std::thread::spawn(move || shape(handle, &case))
+                .join()
+                .unwrap()
+        })
         .collect();
 
     for _ in 0..20 {
