@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FONT_URL: https://github.com/google/fonts/raw/main/ofl/notoserifhebrew/NotoSerifHebrew%5Bwdth%2Cwght%5D.ttf
+  FONT_URL: https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifhebrew/NotoSerifHebrew%5Bwdth%2Cwght%5D.ttf
 
 jobs:
   package-tests:
@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p rust/tests/fonts
-          curl -fsSL -o rust/tests/fonts/NotoSerifHebrew.ttf "$FONT_URL"
+          curl -fsSL --retry 5 --retry-delay 2 -o rust/tests/fonts/NotoSerifHebrew.ttf "$FONT_URL"
 
       - run: flutter pub get
 
