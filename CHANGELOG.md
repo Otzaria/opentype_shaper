@@ -1,7 +1,12 @@
-## Unreleased
+## 0.3.4
 
 - Keep build-hook compatibility with code_assets 1.2.1 while avoiding
   deprecation diagnostics from newer code_assets versions.
+- Bound the per-font shaped-run cache by estimated bytes as well as entry count,
+  including shaping-option strings, and honor reduced or disabled cache limits.
+- Reuse native shaping buffers for short runs without retaining large-run buffers.
+- Avoid sorting monotonic shaped clusters while preserving text extraction ranges.
+- Reduce TrueType subsetting auxiliary memory and reject truncated outline data.
 
 ## 0.3.3
 
